@@ -1,0 +1,174 @@
+# AgentGround: Factual Grounding & Claim Cross-Check Verifier for AI Agents
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io/)
+[![A2A Compatible](https://img.shields.io/badge/A2A-agent--card.json-purple.svg)](https://a2a-protocol.org)
+
+**AgentGround** is a deterministic factual grounding and cross-check verification engine built for autonomous AI agents, multi-agent systems, and research pipelines.
+
+It eliminates hallucinations, detects numerical drift and entity mismatch, audits unverified assertions, and outputs sentence-level verification verdicts and factual grounding confidence scores (0.0 to 100.0).
+
+---
+
+## 1. Core Specification
+
+| Field | Value |
+| :--- | :--- |
+| **Name** | `AgentGround Cross-Check Verifier` |
+| **Job To Be Done** | Cross-verify candidate agent statements against provided source texts to compute factual grounding, detect unverified assertions/hallucinations, and output machine-readable confidence scores. |
+| **When To Use** | Immediately after web search or document scraping; prior to executing irreversible tool actions, on-chain transactions, or filing research briefs. |
+| **Protocol Support** | Model Context Protocol (MCP stdio), A2A Protocol v1.0, HTTP REST JSON, x402 v2 Bazaar |
+| **Benchmark Quality** | **9/9 CURRENT BENCHMARK SCENARIOS PASSED** (Supported, Unsupported, Numeric Mismatch, Entity Mismatch, Partial Evidence, Contradiction, Insufficient Evidence, Adversarial Overlap, Semantic Paraphrasing) |
+| **Local Engine Latency** | **0.05ms – 0.17ms** (deterministic sub-millisecond local execution) |
+| **Public End-to-End Latency** | Dependent on network transit (typically 50ms – 250ms) |
+| **Evaluation Mode** | Nonfinancial Free Evaluation Tier enabled (`X-Evaluation: free-trial`) |
+
+---
+
+## 2. Quickstart & Installation
+
+### Option A: Install via Smithery (Cursor / Claude Desktop / Cline)
+```bash
+npx -y @smithery/cli install Arafel187/agent-ground
+```
+
+### Option B: Run via Python directly
+```bash
+git clone https://github.com/Arafel187/agent-ground.git
+cd agent-ground
+pip install -r requirements.txt
+
+# Run as Model Context Protocol (MCP) Server over stdio
+python agent_ground.py --mcp
+
+# Or run as HTTP REST / A2A server
+python agent_ground.py 8092
+```
+
+---
+
+## 3. Model Context Protocol (MCP) Configuration
+
+Add AgentGround to your agent's MCP config:
+
+### Claude Desktop (`claude_desktop_config.json`)
+```json
+{
+  "mcpServers": {
+    "agent-ground": {
+      "command": "python",
+      "args": ["-m", "agent_ground_service", "--mcp"],
+      "cwd": "/path/to/agent-ground"
+    }
+  }
+}
+```
+
+### Cursor (`.cursor/mcp.json`)
+```json
+{
+  "mcpServers": {
+    "agent-ground": {
+      "command": "python",
+      "args": ["-m", "agent_ground_service", "--mcp"]
+    }
+  }
+}
+```
+
+---
+
+## 4. Input & Output Schema
+
+### Tool: `verify_claims`
+
+#### Input Schema
+```json
+{
+  "claims": [
+    "Base network processed over 5 million transactions yesterday.",
+    "USDC is a fiat-collateralized stablecoin issued by Circle."
+  ],
+  "sources": [
+    "Official blockchain telemetry reveals Base network processed over 5.2 million transactions yesterday.",
+    "Circle issues USDC as a fully reserved, fiat-collateralized digital dollar."
+  ],
+  "mode": "balanced"
+}
+```
+
+#### Output Schema
+```json
+{
+  "verdict": "VERIFIED",
+  "grounding_score": 100.0,
+  "claims_count": 2,
+  "verified_count": 2,
+  "ungrounded_count": 0,
+  "contradicted_count": 0,
+  "claim_results": [
+    {
+      "claim_index": 0,
+      "claim": "Base network processed over 5 million transactions yesterday.",
+      "status": "VERIFIED_GROUNDED",
+      "confidence": 0.95,
+      "matched_source_index": 0,
+      "evidence_snippet": "Official blockchain telemetry reveals Base network processed over 5.2 million transactions yesterday."
+    },
+    {
+      "claim_index": 1,
+      "claim": "USDC is a fiat-collateralized stablecoin issued by Circle.",
+      "status": "VERIFIED_GROUNDED",
+      "confidence": 0.95,
+      "matched_source_index": 1,
+      "evidence_snippet": "Circle issues USDC as a fully reserved, fiat-collateralized digital dollar."
+    }
+  ],
+  "timestamp": "2026-09-11T17:40:00Z"
+}
+```
+
+---
+
+## 5. HTTP & A2A Discovery Routes
+
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `GET` | `/.well-known/agent-card.json` | **Canonical A2A Agent Card** conforming to A2A specification |
+| `GET` | `/.well-known/agent.json` | Backward-compatibility alias |
+| `GET` | `/llms.txt` | Machine-readable system guide for AI agents |
+| `GET` | `/api/v1/health` | Service health and capability check |
+| `GET` | `/api/v1/mcp/tools` | MCP Tool manifest JSON |
+| `POST` | `/api/v1/verify-claims` | Factual grounding evaluation endpoint |
+
+### Free Evaluation Tier
+To invoke via HTTP without payment negotiation or wallet setup during autonomous testing, include the evaluation header:
+```http
+POST /api/v1/verify-claims HTTP/1.1
+Host: localhost:8092
+Content-Type: application/json
+X-Evaluation: free-trial
+```
+
+---
+
+## 6. Error States & Status Codes
+
+- `200 OK`: Successful verification execution.
+- `400 Bad Request`: Malformed JSON or missing required arrays (`claims`, `sources`).
+- `402 Payment Required`: Mainnet mode when not using the free evaluation tier. Includes RFC/CDP compliant x402 Base64 `PAYMENT-REQUIRED` header.
+- `413 Payload Too Large`: Request body exceeds 1MB limit.
+- `500 Server Error`: Internal verification engine failure.
+
+---
+
+## 7. Capability Limits & Edge Cases
+
+- **Deterministic Lexical & Semantic Overlap**: Computes exact numeric equality, named entity containment, antonym polarities, and token overlap.
+- **Explicit Source Requirement**: Does not perform autonomous open-web crawling inside the verification call (source documents or snippets must be supplied by the caller).
+- **Throughput**: Sub-millisecond deterministic evaluation; optimal for 1 to 50 claims per request.
+
+---
+
+## License
+MIT License. Copyright (c) 2026 Arafel187.

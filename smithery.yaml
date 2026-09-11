@@ -1,0 +1,27 @@
+# Smithery MCP Configuration for AgentGround
+# Cross-Check Claim & Factual Grounding Verifier for Autonomous Agents
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties: {}
+  commandFunction:
+    command: "python"
+    args: ["agent_ground.py", "--mcp"]
+
+metadata:
+  name: "agent-ground"
+  displayName: "AgentGround Factual Grounding & Claim Verifier"
+  description: "Cross-verify candidate statements against source documents to compute factual grounding, detect ungrounded assertions, and eliminate hallucinations."
+  version: "1.0.0"
+  repository: "https://github.com/Arafel187/agent-ground"
+  license: "MIT"
+  tags:
+    - "verification"
+    - "grounding"
+    - "fact-checking"
+    - "hallucination-detection"
+    - "evidence"
+    - "a2a"
+    - "mcp"

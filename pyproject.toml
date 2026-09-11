@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-ground"
+version = "1.0.0"
+description = "Deterministic cross-check claim verification and factual grounding engine for AI agents"
+readme = "README.md"
+authors = [{ name = "Arafel187", email = "arafel187@users.noreply.github.com" }]
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0"
+]
+keywords = ["mcp", "a2a", "fact-checking", "verification", "grounding", "hallucination-detection", "ai-agents"]
+
+[project.scripts]
+agent-ground = "agent_ground:main"
+
+[project.urls]
+Homepage = "https://github.com/Arafel187/agent-ground"
+Repository = "https://github.com/Arafel187/agent-ground"
+Issues = "https://github.com/Arafel187/agent-ground/issues"
+Documentation = "https://github.com/Arafel187/agent-ground/blob/main/llms.txt"

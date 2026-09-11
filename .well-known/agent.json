@@ -1,0 +1,137 @@
+{
+  "$schema": "https://a2a-protocol.org/schemas/v1/agent-card.json",
+  "name": "AgentGround Cross-Check Verifier",
+  "description": "Atomically cross-verify candidate agent statements against provided source texts to compute factual grounding, detect unverified assertions, and output machine-readable confidence scores.",
+  "version": "1.0.0",
+  "url": "https://raw.githubusercontent.com/Arafel187/agent-ground/main",
+  "documentationUrl": "https://raw.githubusercontent.com/Arafel187/agent-ground/main/llms.txt",
+  "provider": {
+    "organization": "ATL Autonomous Agent Ecosystem",
+    "url": "https://raw.githubusercontent.com/Arafel187/agent-ground/main"
+  },
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "evaluationTier": true
+  },
+  "authentication": {
+    "schemes": [
+      {
+        "type": "x402",
+        "version": "2.0",
+        "network": "eip155:8453",
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "amount": "10000",
+        "payTo": "0x26026370fe8b2bb17af9092a17691c76519366da",
+        "description": "$0.01 USDC on Base mainnet"
+      },
+      {
+        "type": "header",
+        "headerName": "X-Evaluation",
+        "expectedValue": "free-trial",
+        "description": "Nonfinancial free evaluation tier for autonomous testing"
+      }
+    ]
+  },
+  "skills": [
+    {
+      "id": "verify_claims",
+      "name": "Cross-Check Claim Verification",
+      "description": "Cross-checks a list of claims against reference sources and returns sentence-level verdicts, grounding scores, and citation snippets.",
+      "tags": [
+        "verification",
+        "grounding",
+        "hallucination-detection",
+        "evidence",
+        "fact-checking"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "claims",
+          "sources"
+        ],
+        "properties": {
+          "claims": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Factual assertions or conclusions to verify"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Raw text snippets, source passages, or search results"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "strict",
+              "balanced"
+            ],
+            "default": "balanced"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "verdict",
+          "grounding_score",
+          "claims_count",
+          "verified_count",
+          "ungrounded_count",
+          "claim_results"
+        ],
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "VERIFIED",
+              "PARTIALLY_GROUNDED",
+              "UNGROUNDED",
+              "CONTRADICTED"
+            ]
+          },
+          "grounding_score": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 100.0
+          },
+          "claims_count": {
+            "type": "integer"
+          },
+          "verified_count": {
+            "type": "integer"
+          },
+          "ungrounded_count": {
+            "type": "integer"
+          },
+          "contradicted_count": {
+            "type": "integer"
+          },
+          "claim_results": {
+            "type": "array"
+          }
+        }
+      }
+    }
+  ],
+  "interfaces": [
+    {
+      "type": "http",
+      "method": "POST",
+      "path": "/api/v1/verify-claims",
+      "inputContentType": "application/json",
+      "outputContentType": "application/json"
+    },
+    {
+      "type": "mcp",
+      "transport": "stdio",
+      "command": "python -m agent_ground_service --mcp"
+    }
+  ]
+}
