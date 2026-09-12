@@ -68,7 +68,7 @@ Format: `application/json`
 ## 7. How Can Result Quality Be Verified?
 - 9/9 CURRENT BENCHMARK SCENARIOS PASSED (Supported, Unsupported, Numeric Mismatch, Entity Mismatch, Partial Evidence, Contradiction, Insufficient Evidence, Adversarial Overlap, Semantic Paraphrasing).
 - LOCAL_ENGINE_LATENCY: 0.05ms - 0.17ms (measured empirically across 100 benchmark iterations).
-- PUBLIC_END_TO_END_LATENCY: Dependent on client-to-ingress network transit (typically 50ms - 250ms).
+- PUBLIC_END_TO_END_LATENCY: UNKNOWN (pending actual public external request benchmark).
 
 ## 8. Capability Limits & Scope
 - Scope: Deterministic factual grounding and claim-to-evidence cross-checking.

@@ -20,7 +20,7 @@ It eliminates hallucinations, detects numerical drift and entity mismatch, audit
 | **Protocol Support** | Model Context Protocol (MCP stdio), A2A Protocol v1.0, HTTP REST JSON, x402 v2 Bazaar |
 | **Benchmark Quality** | **9/9 CURRENT BENCHMARK SCENARIOS PASSED** (Supported, Unsupported, Numeric Mismatch, Entity Mismatch, Partial Evidence, Contradiction, Insufficient Evidence, Adversarial Overlap, Semantic Paraphrasing) |
 | **Local Engine Latency** | **0.05ms – 0.17ms** (deterministic sub-millisecond local execution) |
-| **Public End-to-End Latency** | Dependent on network transit (typically 50ms – 250ms) |
+| **Public End-to-End Latency** | **UNKNOWN** (pending actual public external request benchmark) |
 | **Evaluation Mode** | Nonfinancial Free Evaluation Tier enabled (`X-Evaluation: free-trial`) |
 
 ---
