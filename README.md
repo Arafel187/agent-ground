@@ -45,7 +45,7 @@ python agent_ground.py --mcp
 python agent_ground.py 8092
 ```
 
-### Option C: Run as Remote Hosted Gateway (REST + MCP SSE + Inspector)
+### Option C: Run as Canonical Remote MCP Gateway (Streamable HTTP /mcp)
 ```bash
 # Starts high-throughput remote invocation gateway on port 8095
 python agent_ground.py --remote
@@ -53,8 +53,10 @@ python agent_ground.py --remote
 # Healthcheck
 curl http://localhost:8095/health
 
-# Tool Schemas
-curl http://localhost:8095/tools
+# MCP Streamable HTTP Endpoint (Canonical MCP lifecycle: initialize, tools/list, tools/call)
+curl -X POST http://localhost:8095/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "ExampleAgent", "version": "1.0.0"}}}'
 
 # Direct Claim Verification (REST)
 curl -X POST http://localhost:8095/api/v1/verify-claims \
@@ -65,14 +67,38 @@ curl -X POST http://localhost:8095/api/v1/verify-claims \
 ### Glama MCP Inspector Compatibility
 AgentGround's remote gateway is natively compatible with [Glama MCP Inspector](https://glama.ai/mcp/inspector):
 - Connect directly via URL parameter:
-  `https://glama.ai/mcp/inspector?servers=[{"name":"AgentGround","url":"http://<HOST>:8095/sse"}]`
-- Supports Server-Sent Events (`/sse`) and Streamable HTTP message handling (`/messages`, `/rpc`).
+  `https://glama.ai/mcp/inspector?servers=[{"name":"AgentGround","url":"https://<HOST>/mcp"}]`
+- Supports standard Streamable HTTP (`/mcp`), Server-Sent Events (`/sse`), and legacy JSON-RPC (`/rpc`).
 
 ---
 
-## 3. Model Context Protocol (MCP) Configuration
+## 3. Autonomous Multi-Agent Framework Integration
 
-Add AgentGround to your agent's MCP config:
+### CrewAI (`MCPServerHTTP`)
+Connect any CrewAI researcher or fact-checker agent directly to AgentGround without writing custom verification code:
+```python
+from crewai import Agent
+from crewai.mcp import MCPServerHTTP
+
+fact_checker = Agent(
+    role="Factual Grounding Specialist",
+    goal="Verify assertions and detect hallucinations against research sources",
+    mcps=[
+        MCPServerHTTP(
+            url="https://<HOST>/mcp",
+            streamable=True
+        )
+    ]
+)
+```
+
+### AutoGen (`StreamableHttpMcpToolAdapter`)
+```python
+from autogen_ext.tools.mcp import StreamableHttpServerParams, StreamableHttpMcpToolAdapter
+
+params = StreamableHttpServerParams(url="https://<HOST>/mcp")
+verifier_tool = StreamableHttpMcpToolAdapter(params=params)
+```
 
 ### Claude Desktop (`claude_desktop_config.json`)
 ```json
