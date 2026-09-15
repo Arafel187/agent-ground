@@ -48,6 +48,10 @@ TELEMETRY_LOG_PATH = os.path.join(WORKSPACE_DIR, "ATL_A2A_LIVE_TELEMETRY.jsonl")
 _rate_limit_lock = threading.Lock()
 _rate_limit_store: Dict[str, List[float]] = {}
 
+# In-memory Session Storage: {session_id: session_data}
+_sessions_lock = threading.Lock()
+_sessions_store: Dict[str, Dict[str, Any]] = {}
+
 
 def hash_identifier(ip: str, user_agent: str = "") -> str:
     """Computes a privacy-preserving SHA-256 hash of the client identifier."""
@@ -85,7 +89,13 @@ def log_remote_telemetry(
     latency_ms: float,
     verdict: Optional[str] = None,
     error_code: Optional[str] = None,
-    client_classification: str = "INDEPENDENT_EXTERNAL_AGENT"
+    client_classification: str = "INDEPENDENT_EXTERNAL_AGENT",
+    client_info: Optional[Dict[str, str]] = None,
+    protocol_version: Optional[str] = None,
+    tool: Optional[str] = None,
+    success: Optional[bool] = None,
+    result_hash: Optional[str] = None,
+    session_id: Optional[str] = None
 ):
     """Logs structured telemetry event to ATL_A2A_LIVE_TELEMETRY.jsonl without raw PII."""
     ip_hash = hash_identifier(client_ip, user_agent)
@@ -96,6 +106,8 @@ def log_remote_telemetry(
         classification = "INTERNAL_SELF_TEST"
     elif "bot" in user_agent.lower() or "crawler" in user_agent.lower():
         classification = "SEARCH_INDEXER_PROBE"
+    elif client_info and any(k in client_info.get("name", "").lower() for k in ("test", "selftest", "diagnostic")):
+        classification = "INTERNAL_SELF_TEST"
     else:
         classification = client_classification
 
@@ -107,7 +119,13 @@ def log_remote_telemetry(
         "method": method,
         "status": status_code,
         "client_hash": ip_hash,
+        "session_id": session_id,
         "user_agent": user_agent[:128] if user_agent else "Unknown",
+        "client_info": client_info,
+        "protocol_version": protocol_version,
+        "tool": tool,
+        "success": success,
+        "result_hash": result_hash,
         "claims_count": claims_count,
         "verdict": verdict,
         "error_code": error_code,
@@ -190,13 +208,17 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_json_response(self, status: int, data: Dict[str, Any]):
+    def _send_json_response(self, status: int, data: Any, extra_headers: Optional[Dict[str, str]] = None):
         body = json.dumps(data, indent=2).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id, X-Hosted-Gateway-Observable")
         self.send_header("X-Hosted-Gateway-Observable", "true")
+        if extra_headers:
+            for k, v in extra_headers.items():
+                self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
@@ -205,7 +227,8 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Evaluation, Accept")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Evaluation, Accept, Mcp-Session-Id")
+        self.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id, X-Hosted-Gateway-Observable")
         self.send_header("Access-Control-Max-Age", "86400")
         self.end_headers()
 
@@ -225,11 +248,56 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
                 "version": GATEWAY_VERSION,
                 "runtime": "ACTIVE",
                 "HOSTED_GATEWAY_ROUTED_INVOCATIONS_OBSERVABLE": True,
-                "supported_transports": ["HTTP_POST", "MCP_SSE", "MCP_JSON_RPC", "REST"],
+                "supported_transports": ["STREAMABLE_HTTP_MCP", "MCP_JSON_RPC", "MCP_SSE", "REST"],
+                "mcp_endpoint": "/mcp",
                 "rate_limit_per_minute": RATE_LIMIT_MAX_REQUESTS,
                 "max_request_bytes": MAX_REQUEST_BYTES,
                 "timeout_seconds": REQUEST_TIMEOUT_SECONDS,
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            })
+            return
+
+        # Canonical MCP Endpoint (GET fallback / descriptor / stream)
+        if path == "/mcp":
+            accept = self.headers.get("Accept", "")
+            if "text/event-stream" in accept:
+                # SSE Stream transport for MCP clients requesting streaming
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id, X-Hosted-Gateway-Observable")
+                self.send_header("X-Hosted-Gateway-Observable", "true")
+                session_id = hashlib.sha256(f"{client_ip}:{time.time()}".encode("utf-8")).hexdigest()[:16]
+                self.send_header("Mcp-Session-Id", session_id)
+                self.end_headers()
+                endpoint_event = f"event: endpoint\ndata: /mcp?session_id={session_id}\n\n"
+                self.wfile.write(endpoint_event.encode("utf-8"))
+                self.wfile.flush()
+                log_remote_telemetry(
+                    route="/mcp",
+                    method="GET",
+                    status_code=200,
+                    client_ip=client_ip,
+                    user_agent=user_agent,
+                    claims_count=0,
+                    latency_ms=1.0,
+                    verdict="MCP_STREAM_CONNECTED",
+                    session_id=session_id
+                )
+                return
+
+            # Default GET /mcp descriptor
+            self._send_json_response(200, {
+                "name": "agent-ground-remote-gateway",
+                "version": GATEWAY_VERSION,
+                "protocol": "Model Context Protocol (Streamable HTTP)",
+                "transport": "HTTP_POST",
+                "endpoint": "/mcp",
+                "supported_methods": ["initialize", "notifications/initialized", "tools/list", "tools/call", "ping"],
+                "tools": [TOOL_DEFINITION],
+                "HOSTED_GATEWAY_ROUTED_INVOCATIONS_OBSERVABLE": True
             })
             return
 
@@ -238,8 +306,9 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
             self._send_json_response(200, {
                 "tools": [TOOL_DEFINITION],
                 "gateway_version": GATEWAY_VERSION,
-                "protocol": "Model Context Protocol (Remote HTTP/SSE)",
+                "protocol": "Model Context Protocol (Streamable HTTP / JSON-RPC)",
                 "endpoints": {
+                    "mcp_canonical": "/mcp",
                     "rest_invoke": "/api/v1/verify-claims",
                     "mcp_rpc": "/rpc",
                     "mcp_sse": "/sse",
@@ -265,22 +334,28 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
                         "output_schema": TOOL_DEFINITION["output_schema"]
                     }
                 ],
+                "mcp": {
+                    "transport": "Streamable HTTP",
+                    "url": f"http://{self.headers.get('Host', f'127.0.0.1:{DEFAULT_GATEWAY_PORT}')}/mcp"
+                },
                 "pricing": {"tier": "FREE_EVALUATION", "cost_usd": 0.0},
                 "HOSTED_GATEWAY_ROUTED_INVOCATIONS_OBSERVABLE": True
             }
             self._send_json_response(200, card)
             return
 
-        # MCP SSE Handshake Endpoint
+        # MCP SSE Handshake Endpoint (legacy / fallback)
         if path == "/sse":
-            # Model Context Protocol SSE stream endpoint
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "keep-alive")
             self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
+            self.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id, X-Hosted-Gateway-Observable")
+            self.send_header("X-Hosted-Gateway-Observable", "true")
             session_id = hash_identifier(client_ip + str(time.time()))
+            self.send_header("Mcp-Session-Id", session_id)
+            self.end_headers()
             endpoint_event = f"event: endpoint\ndata: /messages?session_id={session_id}\n\n"
             self.wfile.write(endpoint_event.encode("utf-8"))
             self.wfile.flush()
@@ -292,7 +367,8 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
                 user_agent=user_agent,
                 claims_count=0,
                 latency_ms=1.0,
-                verdict="SSE_CONNECTED"
+                verdict="SSE_CONNECTED",
+                session_id=session_id
             )
             return
 
@@ -303,6 +379,7 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
                 "version": GATEWAY_VERSION,
                 "message": "AgentGround Remote Invocation Gateway is online.",
                 "health": "/health",
+                "mcp": "/mcp",
                 "tools": "/tools",
                 "verify": "/api/v1/verify-claims",
                 "HOSTED_GATEWAY_ROUTED_INVOCATIONS_OBSERVABLE": True
@@ -315,6 +392,7 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
         t_start = time.perf_counter()
         client_ip = self.client_address[0]
         user_agent = self.headers.get("User-Agent", "")
+        incoming_session_id = self.headers.get("Mcp-Session-Id", "")
         path = self.path.split("?")[0].rstrip("/")
         ip_hash = hash_identifier(client_ip, user_agent)
 
@@ -322,7 +400,7 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
         permitted, retry_after = check_rate_limit(ip_hash)
         if not permitted:
             latency_ms = (time.perf_counter() - t_start) * 1000.0
-            log_remote_telemetry(path, "POST", 429, client_ip, user_agent, 0, latency_ms, error_code="RATE_LIMIT_EXCEEDED")
+            log_remote_telemetry(path, "POST", 429, client_ip, user_agent, 0, latency_ms, error_code="RATE_LIMIT_EXCEEDED", session_id=incoming_session_id)
             self._send_structured_error(
                 429,
                 "RATE_LIMIT_EXCEEDED",
@@ -339,7 +417,7 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
 
         if content_length > MAX_REQUEST_BYTES:
             latency_ms = (time.perf_counter() - t_start) * 1000.0
-            log_remote_telemetry(path, "POST", 413, client_ip, user_agent, 0, latency_ms, error_code="PAYLOAD_TOO_LARGE")
+            log_remote_telemetry(path, "POST", 413, client_ip, user_agent, 0, latency_ms, error_code="PAYLOAD_TOO_LARGE", session_id=incoming_session_id)
             self._send_structured_error(
                 413,
                 "PAYLOAD_TOO_LARGE",
@@ -352,7 +430,7 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
             raw_body = self.rfile.read(content_length).decode("utf-8")
         except Exception as e:
             latency_ms = (time.perf_counter() - t_start) * 1000.0
-            log_remote_telemetry(path, "POST", 400, client_ip, user_agent, 0, latency_ms, error_code="READ_ERROR")
+            log_remote_telemetry(path, "POST", 400, client_ip, user_agent, 0, latency_ms, error_code="READ_ERROR", session_id=incoming_session_id)
             self._send_structured_error(400, "BAD_REQUEST", f"Failed to read request body: {str(e)}")
             return
 
@@ -361,35 +439,135 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
             payload = json.loads(raw_body) if raw_body else {}
         except Exception as e:
             latency_ms = (time.perf_counter() - t_start) * 1000.0
-            log_remote_telemetry(path, "POST", 400, client_ip, user_agent, 0, latency_ms, error_code="INVALID_JSON")
+            log_remote_telemetry(path, "POST", 400, client_ip, user_agent, 0, latency_ms, error_code="INVALID_JSON", session_id=incoming_session_id)
             self._send_structured_error(400, "INVALID_JSON", f"Malformed JSON payload: {str(e)}")
             return
 
-        # 3. Handle JSON-RPC / MCP call
-        if path in ("/rpc", "/messages"):
-            # Check for JSON-RPC 2.0 structure
+        # 3. Handle Canonical MCP Endpoint (/mcp) and JSON-RPC legacy endpoints (/rpc, /messages)
+        if path in ("/mcp", "/rpc", "/messages"):
             rpc_method = payload.get("method")
-            rpc_id = payload.get("id", 1)
+            rpc_id = payload.get("id")
             params = payload.get("params", {})
 
+            # MCP Lifecycle 1: initialize
+            if rpc_method == "initialize":
+                client_info = params.get("clientInfo", {})
+                protocol_version = params.get("protocolVersion", "2024-11-05")
+                session_id = incoming_session_id or hashlib.sha256(f"{client_ip}:{time.time()}".encode("utf-8")).hexdigest()[:16]
+
+                # Store session in memory
+                with _sessions_lock:
+                    _sessions_store[session_id] = {
+                        "client_info": client_info,
+                        "protocol_version": protocol_version,
+                        "client_ip_hash": ip_hash,
+                        "initialized_at": time.time(),
+                        "status": "INITIALIZED"
+                    }
+
+                latency_ms = (time.perf_counter() - t_start) * 1000.0
+                log_remote_telemetry(
+                    route=path,
+                    method="POST",
+                    status_code=200,
+                    client_ip=client_ip,
+                    user_agent=user_agent,
+                    claims_count=0,
+                    latency_ms=latency_ms,
+                    verdict="INITIALIZED",
+                    client_info=client_info,
+                    protocol_version=protocol_version,
+                    session_id=session_id
+                )
+
+                self._send_json_response(200, {
+                    "jsonrpc": "2.0",
+                    "id": rpc_id,
+                    "result": {
+                        "protocolVersion": protocol_version,
+                        "capabilities": {
+                            "tools": {
+                                "listChanged": False
+                            }
+                        },
+                        "serverInfo": {
+                            "name": "agent-ground-remote-gateway",
+                            "version": GATEWAY_VERSION
+                        },
+                        "instructions": "Deterministic claim verification engine. Invoke verify_claims tool with claims and sources to cross-verify factual grounding."
+                    }
+                }, extra_headers={"Mcp-Session-Id": session_id})
+                return
+
+            # MCP Lifecycle 2: notifications/initialized
+            if rpc_method in ("notifications/initialized", "initialized"):
+                with _sessions_lock:
+                    if incoming_session_id in _sessions_store:
+                        _sessions_store[incoming_session_id]["status"] = "CONFIRMED"
+
+                latency_ms = (time.perf_counter() - t_start) * 1000.0
+                log_remote_telemetry(
+                    route=path,
+                    method="POST",
+                    status_code=200,
+                    client_ip=client_ip,
+                    user_agent=user_agent,
+                    claims_count=0,
+                    latency_ms=latency_ms,
+                    verdict="INITIALIZED_CONFIRMED",
+                    session_id=incoming_session_id
+                )
+                # JSON-RPC notifications do not require a result body, return HTTP 200 with empty body or acknowledgment
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("X-Hosted-Gateway-Observable", "true")
+                if incoming_session_id:
+                    self.send_header("Mcp-Session-Id", incoming_session_id)
+                self.end_headers()
+                self.wfile.write(b"{}")
+                return
+
+            # MCP Lifecycle 3: tools/list
             if rpc_method in ("tools/list", "toolsList"):
                 latency_ms = (time.perf_counter() - t_start) * 1000.0
-                log_remote_telemetry(path, "POST", 200, client_ip, user_agent, 0, latency_ms, verdict="TOOLS_LIST_RETURNED")
+                log_remote_telemetry(
+                    route=path,
+                    method="POST",
+                    status_code=200,
+                    client_ip=client_ip,
+                    user_agent=user_agent,
+                    claims_count=0,
+                    latency_ms=latency_ms,
+                    verdict="TOOLS_LIST_RETURNED",
+                    session_id=incoming_session_id
+                )
                 self._send_json_response(200, {
                     "jsonrpc": "2.0",
                     "id": rpc_id,
                     "result": {"tools": [TOOL_DEFINITION]}
-                })
+                }, extra_headers={"Mcp-Session-Id": incoming_session_id} if incoming_session_id else None)
                 return
 
+            # MCP Lifecycle 4: tools/call
             if rpc_method in ("tools/call", "toolsCall"):
                 tool_name = params.get("name")
                 arguments = params.get("arguments", {})
+
+                # Retrieve session metadata if available
+                session_meta = {}
+                with _sessions_lock:
+                    if incoming_session_id and incoming_session_id in _sessions_store:
+                        session_meta = _sessions_store[incoming_session_id]
+
+                client_info = session_meta.get("client_info")
+                protocol_ver = session_meta.get("protocol_version")
+
                 if tool_name == "verify_claims":
-                    # Route to verifier
                     claims = arguments.get("claims", [])
                     sources = arguments.get("sources", [])
                     mode = arguments.get("mode", "balanced")
+
                     if not isinstance(claims, list) or not isinstance(sources, list):
                         self._send_json_response(200, {
                             "jsonrpc": "2.0",
@@ -398,9 +576,47 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
                         })
                         return
 
-                    res = execute_claim_verification({"claims": claims, "sources": sources, "mode": mode})
+                    # Execute deterministic claim verification
+                    try:
+                        res = execute_claim_verification({"claims": claims, "sources": sources, "mode": mode})
+                    except Exception as e:
+                        latency_ms = (time.perf_counter() - t_start) * 1000.0
+                        log_remote_telemetry(
+                            route=path, method="POST", status_code=500, client_ip=client_ip, user_agent=user_agent,
+                            claims_count=len(claims), latency_ms=latency_ms, error_code="ENGINE_FAILURE",
+                            client_info=client_info, protocol_version=protocol_ver, tool="verify_claims",
+                            success=False, session_id=incoming_session_id
+                        )
+                        self._send_json_response(200, {
+                            "jsonrpc": "2.0",
+                            "id": rpc_id,
+                            "error": {"code": -32603, "message": f"Internal execution error: {str(e)}"}
+                        })
+                        return
+
                     latency_ms = (time.perf_counter() - t_start) * 1000.0
-                    log_remote_telemetry(path, "POST", 200, client_ip, user_agent, len(claims), latency_ms, verdict=res.get("verdict"))
+                    verdict = res.get("verdict", "UNKNOWN")
+                    # Compute result hash for verification telemetry integrity
+                    res_bytes = json.dumps(res, sort_keys=True).encode("utf-8")
+                    res_hash = hashlib.sha256(res_bytes).hexdigest()[:16]
+
+                    log_remote_telemetry(
+                        route=path,
+                        method="POST",
+                        status_code=200,
+                        client_ip=client_ip,
+                        user_agent=user_agent,
+                        claims_count=len(claims),
+                        latency_ms=latency_ms,
+                        verdict=verdict,
+                        client_info=client_info,
+                        protocol_version=protocol_ver,
+                        tool="verify_claims",
+                        success=True,
+                        result_hash=res_hash,
+                        session_id=incoming_session_id
+                    )
+
                     self._send_json_response(200, {
                         "jsonrpc": "2.0",
                         "id": rpc_id,
@@ -413,7 +629,7 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
                             ],
                             "isError": False
                         }
-                    })
+                    }, extra_headers={"Mcp-Session-Id": incoming_session_id} if incoming_session_id else None)
                     return
                 else:
                     self._send_json_response(200, {
@@ -422,6 +638,23 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
                         "error": {"code": -32601, "message": f"Method '{tool_name}' not found."}
                     })
                     return
+
+            # MCP Lifecycle 5: ping
+            if rpc_method == "ping":
+                self._send_json_response(200, {
+                    "jsonrpc": "2.0",
+                    "id": rpc_id,
+                    "result": {}
+                })
+                return
+
+            # Unknown JSON-RPC method
+            self._send_json_response(200, {
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "error": {"code": -32601, "message": f"Unsupported RPC method: '{rpc_method}'"}
+            })
+            return
 
         # 4. Handle Direct REST Verify Endpoint (POST /api/v1/verify-claims or POST /tools/verify_claims)
         if path in ("/api/v1/verify-claims", "/tools/verify_claims"):
@@ -450,7 +683,13 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
 
             latency_ms = (time.perf_counter() - t_start) * 1000.0
             verdict = res.get("verdict", "UNKNOWN")
-            log_remote_telemetry(path, "POST", 200, client_ip, user_agent, len(claims), latency_ms, verdict=verdict)
+            res_bytes = json.dumps(res, sort_keys=True).encode("utf-8")
+            res_hash = hashlib.sha256(res_bytes).hexdigest()[:16]
+
+            log_remote_telemetry(
+                path, "POST", 200, client_ip, user_agent, len(claims), latency_ms,
+                verdict=verdict, tool="verify_claims", success=True, result_hash=res_hash
+            )
 
             # Return valid verification result
             self._send_json_response(200, res)
