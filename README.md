@@ -45,6 +45,29 @@ python agent_ground.py --mcp
 python agent_ground.py 8092
 ```
 
+### Option C: Run as Remote Hosted Gateway (REST + MCP SSE + Inspector)
+```bash
+# Starts high-throughput remote invocation gateway on port 8095
+python agent_ground.py --remote
+
+# Healthcheck
+curl http://localhost:8095/health
+
+# Tool Schemas
+curl http://localhost:8095/tools
+
+# Direct Claim Verification (REST)
+curl -X POST http://localhost:8095/api/v1/verify-claims \
+  -H "Content-Type: application/json" \
+  -d '{"claims": ["Base network is an Ethereum Layer 2."], "sources": ["Base is an Ethereum Layer 2 incubated by Coinbase."]}'
+```
+
+### Glama MCP Inspector Compatibility
+AgentGround's remote gateway is natively compatible with [Glama MCP Inspector](https://glama.ai/mcp/inspector):
+- Connect directly via URL parameter:
+  `https://glama.ai/mcp/inspector?servers=[{"name":"AgentGround","url":"http://<HOST>:8095/sse"}]`
+- Supports Server-Sent Events (`/sse`) and Streamable HTTP message handling (`/messages`, `/rpc`).
+
 ---
 
 ## 3. Model Context Protocol (MCP) Configuration
