@@ -40,6 +40,15 @@ if WORKSPACE_DIR not in sys.path:
 
 from agent_ground_service import execute_claim_verification
 from agent_contract_guard import validate_agent_contract
+from atl_settlement_gate import (
+    evaluate_settlement_readiness,
+    create_material_settlement_event,
+    enqueue_material_event,
+    release_payment_instructions,
+    CANONICAL_SETTLEMENT_GATE,
+    DEFAULT_APPROVED_SETTLEMENT_ADDRESS,
+    DEFAULT_SETTLEMENT_ADDRESS_STATUS,
+)
 
 # Gateway Configuration
 GATEWAY_VERSION = "1.3.0"
@@ -1130,6 +1139,25 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
 
             record_invoice_request(invoice_record)
 
+            # Check if buyer signaled readiness to settle
+            is_payment_ready_signal = bool(payload.get("buyer_intends_to_settle") or payload.get("payment_ready"))
+            if is_payment_ready_signal or path == "/api/v1/commercial-intent":
+                prod_title = prod_info.get("product_name", product_id)
+                material_event = create_material_settlement_event(
+                    buyer_reference=customer_ref,
+                    product_agent_id=product_id,
+                    product_name=prod_title,
+                    invoice_id=invoice_id,
+                    agreed_scope=payload.get("scope") or f"Subscription to {tier} ({prod_title})",
+                    agreed_amount=amount_usd,
+                    requested_currency=currency,
+                    requested_network=payload.get("network", "Base"),
+                    offer_acceptance_evidence=payload.get("offer_acceptance_evidence", "Commercial invoice requested via remote gateway API"),
+                    payment_readiness_evidence=payload.get("payment_readiness_evidence", "Buyer flagged readiness to settle"),
+                    is_synthetic_test=not invoice_record["external_independence"]
+                )
+                enqueue_material_event(material_event)
+
             latency_ms = (time.perf_counter() - t_start) * 1000.0
             classification = "COMMERCIAL_SIGNAL" if invoice_record["external_independence"] else "INTEGRATION_SELF_TEST"
             log_remote_telemetry(
@@ -1153,8 +1181,11 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
                 "tier": tier,
                 "amount": amount_usd,
                 "currency": currency,
-                "settlement_status": "OWNER_SETTLEMENT_APPROVAL_REQUIRED",
-                "financial_boundary_notice": "Settlement is executed and confirmed by the owner (OWNER_SETTLEMENT_APPROVAL_REQUIRED). Autonomous agent transfer of funds is strictly prohibited.",
+                "settlement_status": CANONICAL_SETTLEMENT_GATE,
+                "approved_settlement_address": DEFAULT_APPROVED_SETTLEMENT_ADDRESS,
+                "settlement_address_status": DEFAULT_SETTLEMENT_ADDRESS_STATUS,
+                "payment_instructions": None,
+                "financial_boundary_notice": "Settlement requires explicit review and approval by the owner (OWNER_SETTLEMENT_APPROVAL_REQUIRED). No payment instructions or receiving address are released in advance.",
                 "support_contact": "support@atlether.trade",
                 "timestamp": now_iso
             })
