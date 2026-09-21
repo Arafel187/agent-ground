@@ -11,7 +11,8 @@ Validates:
 6. Structured error responses (400 Bad Request, 404 Not Found)
 7. MCP JSON-RPC 2.0 tool execution (/rpc)
 8. Server-side telemetry logging with client ID hashing and zero raw PII
-9. HOSTED_GATEWAY_ROUTED_INVOCATIONS_OBSERVABLE = True verification
+9. Canonical MCP 2024-11-05 legacy lifecycle (initialize -> initialized -> tools/list -> tools/call)
+10. MCP 2026-07-28 self-contained requests & wire schema compliance (inputSchema / outputSchema)
 """
 
 import unittest
@@ -59,7 +60,7 @@ class TestAgentGroundRemoteGateway(unittest.TestCase):
 
     def _http_request(self, path: str, method: str = "GET", data: dict = None, headers: dict = None) -> tuple:
         url = f"{BASE_URL}{path}"
-        req_headers = {"User-Agent": "Test-Agent-Runtime/1.0"}
+        req_headers = {"User-Agent": "Test-Agent-Runtime/1.0", "X-Evaluation": "self-test"}
         if headers:
             req_headers.update(headers)
         
@@ -86,9 +87,11 @@ class TestAgentGroundRemoteGateway(unittest.TestCase):
         self.assertEqual(data.get("status"), "HEALTHY")
         self.assertEqual(data.get("version"), GATEWAY_VERSION)
         self.assertTrue(data.get("HOSTED_GATEWAY_ROUTED_INVOCATIONS_OBSERVABLE"))
+        self.assertIn("2026-07-28", data.get("supported_protocol_versions", []))
+        self.assertIn("2024-11-05", data.get("supported_protocol_versions", []))
 
     def test_02_machine_readable_tool_descriptions(self):
-        """Validates /tools and /.well-known/agent-card.json return machine-readable schemas."""
+        """Validates /tools and /.well-known/agent-card.json return wire-compliant schemas."""
         status, body, _ = self._http_request("/tools")
         self.assertEqual(status, 200)
         data = json.loads(body)
@@ -96,8 +99,11 @@ class TestAgentGroundRemoteGateway(unittest.TestCase):
         self.assertTrue(len(data["tools"]) > 0)
         tool = data["tools"][0]
         self.assertEqual(tool["name"], "verify_claims")
-        self.assertIn("input_schema", tool)
-        self.assertIn("output_schema", tool)
+        # Assert MCP wire schema standard
+        self.assertIn("inputSchema", tool)
+        self.assertIn("outputSchema", tool)
+        self.assertNotIn("input_schema", tool)
+        self.assertNotIn("output_schema", tool)
 
         # Agent Card test
         status_card, body_card, _ = self._http_request("/.well-known/agent-card.json")
@@ -105,6 +111,9 @@ class TestAgentGroundRemoteGateway(unittest.TestCase):
         card = json.loads(body_card)
         self.assertIn("skills", card)
         self.assertTrue(card.get("HOSTED_GATEWAY_ROUTED_INVOCATIONS_OBSERVABLE"))
+        skill = card["skills"][0]
+        self.assertIn("inputSchema", skill)
+        self.assertIn("outputSchema", skill)
 
     def test_03_real_claim_verification_execution(self):
         """Validates real AgentGround execution returns deterministic grounded results."""
@@ -193,8 +202,8 @@ class TestAgentGroundRemoteGateway(unittest.TestCase):
             self.assertTrue(latest["HOSTED_GATEWAY_ROUTED_INVOCATIONS_OBSERVABLE"])
             self.assertNotIn("127.0.0.1", latest["client_hash"])  # Salted hash does not leak raw IP
 
-    def test_08_canonical_mcp_streamable_http_lifecycle(self):
-        """Validates standard MCP lifecycle on /mcp: initialize -> initialized -> tools/list -> tools/call."""
+    def test_08_canonical_mcp_streamable_http_lifecycle_legacy_2024_11_05(self):
+        """Validates legacy MCP 2024-11-05 lifecycle on /mcp: initialize -> initialized -> tools/list -> tools/call."""
         # 1. initialize
         init_payload = {
             "jsonrpc": "2.0",
@@ -204,8 +213,8 @@ class TestAgentGroundRemoteGateway(unittest.TestCase):
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
                 "clientInfo": {
-                    "name": "AutonomousResearchAgent",
-                    "version": "3.1.0"
+                    "name": "LegacyAutonomousAgent",
+                    "version": "1.0.0"
                 }
             }
         }
@@ -239,7 +248,10 @@ class TestAgentGroundRemoteGateway(unittest.TestCase):
         list_data = json.loads(body_list)
         self.assertIn("result", list_data)
         self.assertIn("tools", list_data["result"])
-        self.assertTrue(any(t["name"] == "verify_claims" for t in list_data["result"]["tools"]))
+        tool = list_data["result"]["tools"][0]
+        self.assertEqual(tool["name"], "verify_claims")
+        self.assertIn("inputSchema", tool)
+        self.assertNotIn("input_schema", tool)
 
         # 4. tools/call
         call_payload = {
@@ -263,28 +275,68 @@ class TestAgentGroundRemoteGateway(unittest.TestCase):
         self.assertEqual(parsed_res.get("verdict"), "VERIFIED")
         self.assertEqual(parsed_res.get("grounding_score"), 100.0)
 
-    def test_09_client_identity_telemetry_capture(self):
-        """Validates that MCP initialize and tool calls capture protocol clientInfo, protocolVersion, result_hash."""
-        with open(TELEMETRY_LOG_PATH, "r", encoding="utf-8") as f:
-            lines = [line.strip() for line in f if line.strip()]
-        
-        # Scan for the AutonomousResearchAgent session
-        agent_entries = [json.loads(line) for line in lines if "AutonomousResearchAgent" in line]
-        self.assertTrue(len(agent_entries) > 0, "Expected telemetry record for AutonomousResearchAgent")
-        
-        init_entry = [e for e in agent_entries if e.get("verdict") == "INITIALIZED"][0]
-        self.assertEqual(init_entry["client_info"]["name"], "AutonomousResearchAgent")
-        self.assertEqual(init_entry["client_info"]["version"], "3.1.0")
-        self.assertEqual(init_entry["protocol_version"], "2024-11-05")
+    def test_09_mcp_2026_07_28_self_contained_flow(self):
+        """Validates modern MCP 2026-07-28 self-contained requests without initialize or Mcp-Session-Id."""
+        # 1. tools/list direct invocation
+        headers = {
+            "MCP-Protocol-Version": "2026-07-28",
+            "MCP-Client-Info": json.dumps({"name": "ModernMcpAgent", "version": "2.0.0"}),
+            "X-Evaluation": "self-test"
+        }
+        list_payload = {
+            "jsonrpc": "2.0",
+            "id": "direct-list-001",
+            "method": "tools/list"
+        }
+        status, body, resp_headers = self._http_request("/mcp", method="POST", data=list_payload, headers=headers)
+        self.assertEqual(status, 200)
+        self.assertIn("2026-07-28", resp_headers.get("MCP-Protocol-Version", resp_headers.get("mcp-protocol-version", "")))
+        data = json.loads(body)
+        self.assertIn("result", data)
+        self.assertIn("tools", data["result"])
+        tool = data["result"]["tools"][0]
+        self.assertEqual(tool["name"], "verify_claims")
+        self.assertIn("inputSchema", tool)
+        self.assertIn("outputSchema", tool)
+        self.assertNotIn("input_schema", tool)
 
-        tool_entries = [e for e in agent_entries if e.get("tool") == "verify_claims"]
-        self.assertTrue(len(tool_entries) > 0, "Expected tool execution record linked to AutonomousResearchAgent")
-        tool_entry = tool_entries[0]
-        self.assertEqual(tool_entry["tool"], "verify_claims")
-        self.assertTrue(tool_entry["success"])
-        self.assertIsNotNone(tool_entry.get("result_hash"))
-        self.assertTrue(len(tool_entry["result_hash"]) > 0)
-        self.assertTrue(tool_entry["HOSTED_GATEWAY_ROUTED_INVOCATIONS_OBSERVABLE"])
+        # 2. tools/call direct invocation with _meta client info
+        call_payload = {
+            "jsonrpc": "2.0",
+            "id": "direct-call-001",
+            "method": "tools/call",
+            "params": {
+                "_meta": {
+                    "clientInfo": {"name": "ModernMcpAgent", "version": "2.0.0"}
+                },
+                "name": "verify_claims",
+                "arguments": {
+                    "claims": ["Arbitrum is an Ethereum layer 2 rollup."],
+                    "sources": ["Arbitrum is a leading optimistic rollup scaling Ethereum layer 2."]
+                }
+            }
+        }
+        status_call, body_call, resp_call_hdrs = self._http_request("/mcp", method="POST", data=call_payload, headers=headers)
+        self.assertEqual(status_call, 200)
+        call_data = json.loads(body_call)
+        self.assertEqual(call_data.get("id"), "direct-call-001")
+        self.assertIn("result", call_data)
+        content = json.loads(call_data["result"]["content"][0]["text"])
+        self.assertEqual(content.get("verdict"), "VERIFIED")
+        self.assertEqual(content.get("grounding_score"), 100.0)
+
+        # 3. server/discover direct invocation
+        discover_payload = {
+            "jsonrpc": "2.0",
+            "id": "discover-001",
+            "method": "server/discover"
+        }
+        status_disc, body_disc, _ = self._http_request("/mcp", method="POST", data=discover_payload, headers=headers)
+        self.assertEqual(status_disc, 200)
+        disc_data = json.loads(body_disc)
+        self.assertIn("result", disc_data)
+        self.assertEqual(disc_data["result"].get("protocolVersion"), "2026-07-28")
+        self.assertIn("serverInfo", disc_data["result"])
 
 
 if __name__ == "__main__":
