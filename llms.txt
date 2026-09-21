@@ -66,9 +66,9 @@ Format: `application/json`
 - Metered Prepaid: $0.001 USDC / USDT per query (1,000 queries per $1.00; minimum pack $5.00) [Pricing Hypothesis].
 - Pro Monthly Tier: 25 USDC / month (50,000 queries/month included, priority capacity) [Pricing Hypothesis].
 - Enterprise Pilot: 250 USDC (90-day pilot, custom sources, engineering support) [Negotiable Pilot Scope].
-- Pricing Status: All tiers represent commercial pricing hypotheses open to discussion and tailored pilots. Contractual SLAs require explicit eligible adult account holder approval.
+- Pricing Status: All tiers represent commercial pricing hypotheses open to discussion and tailored pilots. Contractual SLAs require explicit owner approval.
 - Request Invoice / Credits: `POST https://agentground.atlether.trade/api/v1/request-invoice`
-- Financial Boundary: All settlement instructions are verified and confirmed by an eligible adult account holder. Zero autonomous token transfer authority.
+- Financial Boundary: All settlement instructions are reviewed and approved by the owner (OWNER_SETTLEMENT_APPROVAL_REQUIRED). Zero autonomous token transfer authority.
 
 ## 7. How Can Result Quality Be Verified?
 - 9/9 CURRENT BENCHMARK SCENARIOS PASSED (Supported, Unsupported, Numeric Mismatch, Entity Mismatch, Partial Evidence, Contradiction, Insufficient Evidence, Adversarial Overlap, Semantic Paraphrasing).

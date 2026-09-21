@@ -205,7 +205,7 @@ AgentGround operates on transparent, commercial pricing with zero hidden fees.
 | **Pro Monthly** | 25 USDC / month | 50,000 queries/month included ($0.0008 overage) | Dedicated API capacity, burst allowance (Pricing Hypothesis). |
 | **Enterprise Pilot** | 250 USDC | 90-day pilot | Dedicated high-concurrency instance, custom domain schema, engineering integration support (Negotiable Pilot Scope). |
 
-> *Note on Pricing:* All tiers represent commercial pricing hypotheses open to discussion and tailoring for specific customer workflows. No contractual uptime SLAs are offered without explicit prior approval from the eligible adult account holder.
+> *Note on Pricing:* All tiers represent commercial pricing hypotheses open to discussion and tailoring for specific customer workflows. No contractual uptime SLAs are offered without explicit prior approval from the owner.
 
 ### How to Request an Invoice Programmatically
 Agents and developers can programmatically request an invoice and lock in capacity:
@@ -221,7 +221,7 @@ curl -X POST https://agentground.atlether.trade/api/v1/request-invoice \
   }'
 ```
 
-> **Financial Boundary Notice:** In accordance with our security policy, all settlement instructions are reviewed and confirmed by an eligible adult account holder. Autonomous agents do not hold private keys or execute unauthorized fund transfers.
+> **Financial Boundary Notice:** In accordance with our security policy, all settlement instructions are reviewed and approved by the owner (OWNER_SETTLEMENT_APPROVAL_REQUIRED). Autonomous agents do not hold private keys or execute unauthorized fund transfers.
 
 ---
 

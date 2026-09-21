@@ -577,8 +577,8 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
                 "operating_mode": "REAL_REVENUE_MODE",
                 "pricing_classification": "PRICING_HYPOTHESIS",
                 "accepted_settlement_currencies": ["USDC", "USDT"],
-                "pricing_policy": "All commercial tiers represent unvalidated pricing hypotheses subject to buyer negotiation and small paid pilot adaptation. No contractual uptime SLAs are guaranteed without prior eligible adult account holder approval.",
-                "settlement_policy": "Settlement instructions issued upon invoice request; all financial settlement requires review and confirmation by an eligible adult account holder. Zero autonomous token transfer authority.",
+                "pricing_policy": "All commercial tiers represent unvalidated pricing hypotheses subject to buyer negotiation and small paid pilot adaptation. No contractual uptime SLAs are guaranteed without prior owner approval.",
+                "settlement_policy": "Settlement instructions issued upon invoice request; all financial settlement requires review and approval by the owner (OWNER_SETTLEMENT_APPROVAL_REQUIRED). Zero autonomous token transfer authority.",
                 "pricing_catalog": catalog_data.get("commercial_pricing_catalog", {}),
                 "order_endpoint": "/api/v1/request-invoice",
                 "commercial_intent_endpoint": "/api/v1/commercial-intent",
@@ -1122,7 +1122,7 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
                 "amount": amount_usd,
                 "currency": currency,
                 "units_requested": units_requested,
-                "status": "PENDING_ELIGIBLE_ACCOUNT_HOLDER_SETTLEMENT",
+                "status": "PENDING_OWNER_SETTLEMENT_APPROVAL",
                 "notes": notes,
                 "client_ip_hash": ip_hash,
                 "external_independence": not is_atl_origin
@@ -1153,8 +1153,8 @@ class AgentGroundRemoteGatewayHandler(http.server.BaseHTTPRequestHandler):
                 "tier": tier,
                 "amount": amount_usd,
                 "currency": currency,
-                "settlement_status": "AWAITING_ELIGIBLE_ACCOUNT_HOLDER_REVIEW",
-                "financial_boundary_notice": "Settlement is executed and confirmed by an eligible adult account holder. Autonomous agent transfer of funds is prohibited.",
+                "settlement_status": "OWNER_SETTLEMENT_APPROVAL_REQUIRED",
+                "financial_boundary_notice": "Settlement is executed and confirmed by the owner (OWNER_SETTLEMENT_APPROVAL_REQUIRED). Autonomous agent transfer of funds is strictly prohibited.",
                 "support_contact": "support@atlether.trade",
                 "timestamp": now_iso
             })
