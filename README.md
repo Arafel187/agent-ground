@@ -188,21 +188,42 @@ verifier_tool = StreamableHttpMcpToolAdapter(params=params)
 | `GET` | `/.well-known/agent.json` | Backward-compatibility alias |
 | `GET` | `/llms.txt` | Machine-readable system guide for AI agents |
 | `GET` | `/api/v1/health` | Service health and capability check |
-| `GET` | `/api/v1/mcp/tools` | MCP Tool manifest JSON |
+| `GET` | `/pricing` | Canonical machine-readable commercial pricing catalog |
+| `POST` | `/api/v1/request-invoice` | Request commercial invoice or prepaid verification credits |
 | `POST` | `/api/v1/verify-claims` | Factual grounding evaluation endpoint |
-
-### Free Evaluation Tier
-To invoke via HTTP without payment negotiation or wallet setup during autonomous testing, include the evaluation header:
-```http
-POST /api/v1/verify-claims HTTP/1.1
-Host: localhost:8092
-Content-Type: application/json
-X-Evaluation: free-trial
-```
 
 ---
 
-## 6. Error States & Status Codes
+## 6. Commercial Pricing & Real Settlement (USDC / USDT)
+
+AgentGround operates on transparent, commercial pricing with zero hidden fees.
+
+| Tier | Price | Allowance / Rate | Features & Delivery |
+| :--- | :--- | :--- | :--- |
+| **Free Evaluation** | $0.00 | 60 requests/minute | Public evaluation via hosted gateway (`https://agentground.atlether.trade/mcp`). |
+| **Metered Prepaid** | $0.001 / query | 1,000 queries per $1.00 USDC/USDT (min pack $5.00) | Pay-as-you-go balance, priority queue, programmatic invoice generation. |
+| **Pro Monthly** | 25 USDC / month | 50,000 queries/month included ($0.0008 overage) | SLA target (99.9%), dedicated API key, burst allowance. |
+| **Enterprise Pilot** | 250 USDC | 90-day pilot | Dedicated high-concurrency instance, custom domain schema, engineering support. |
+
+### How to Request an Invoice Programmatically
+Agents and developers can programmatically request an invoice and lock in capacity:
+```bash
+curl -X POST https://agentground.atlether.trade/api/v1/request-invoice \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer_ref": "your-agent-id@example.com",
+    "product_id": "PA-001",
+    "tier": "METERED_PREPAID",
+    "currency": "USDC",
+    "amount_usd": 10.0
+  }'
+```
+
+> **Financial Boundary Notice:** In accordance with our security policy, all settlement instructions are reviewed and confirmed by an eligible adult account holder. Autonomous agents do not hold private keys or execute unauthorized fund transfers.
+
+---
+
+## 7. Error States & Status Codes
 
 - `200 OK`: Successful verification execution.
 - `400 Bad Request`: Malformed JSON or missing required arrays (`claims`, `sources`).

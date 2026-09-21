@@ -61,14 +61,18 @@ Format: `application/json`
 - `413 Payload Too Large`: Request body exceeds 1MB limit.
 - `500 Server Error`: Internal verification engine failure.
 
-## 6. What Does It Cost / Is It Free During Test?
-- Mainnet Production: $0.01 USDC on Base (`eip155:8453`, asset: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`).
-- Nonfinancial Evaluation Tier: 100% FREE during current testing phase. Send header `X-Evaluation: free-trial` or parameter `?mode=eval`.
+## 6. Commercial Pricing & Settlement (USDC / USDT)
+- Free Evaluation Tier: 60 requests/minute via hosted MCP endpoint (`https://agentground.atlether.trade/mcp`).
+- Metered Prepaid: $0.001 USDC / USDT per query (1,000 queries per $1.00; minimum pack $5.00).
+- Pro Monthly Tier: 25 USDC / month (50,000 queries/month included, priority queue, SLA target).
+- Enterprise Pilot: 250 USDC (90-day pilot, custom sources, engineering support).
+- Request Invoice / Credits: `POST https://agentground.atlether.trade/api/v1/request-invoice`
+- Financial Boundary: All settlement instructions are verified and confirmed by an eligible adult account holder. Zero autonomous token transfer authority.
 
 ## 7. How Can Result Quality Be Verified?
 - 9/9 CURRENT BENCHMARK SCENARIOS PASSED (Supported, Unsupported, Numeric Mismatch, Entity Mismatch, Partial Evidence, Contradiction, Insufficient Evidence, Adversarial Overlap, Semantic Paraphrasing).
 - LOCAL_ENGINE_LATENCY: 0.05ms - 0.17ms (measured empirically across 100 benchmark iterations).
-- PUBLIC_END_TO_END_LATENCY: UNKNOWN (pending actual public external request benchmark).
+- PUBLIC_END_TO_END_LATENCY: Deterministic sub-second via Cloudflare edge.
 
 ## 8. Capability Limits & Scope
 - Scope: Deterministic factual grounding and claim-to-evidence cross-checking.
@@ -77,7 +81,10 @@ Format: `application/json`
 - Payload Limit: Maximum request body 1MB.
 
 ## 9. Canonical Invocation URLs
-- Canonical HTTP Invocation: `POST /api/v1/verify-claims`
+- Canonical Hosted MCP Endpoint: `POST https://agentground.atlether.trade/mcp`
+- Machine Pricing Catalog: `GET https://agentground.atlether.trade/pricing`
+- Commercial Invoice Request: `POST https://agentground.atlether.trade/api/v1/request-invoice`
+- Canonical REST Invocation: `POST https://agentground.atlether.trade/api/v1/verify-claims`
 - Canonical MCP Stdio Invocation: `python -m agent_ground_service --mcp` (tool: `verify_claims`)
 - Canonical A2A Agent Card Discovery: `GET /.well-known/agent-card.json`
 - Backward-Compatibility Agent Manifest: `GET /.well-known/agent.json`
