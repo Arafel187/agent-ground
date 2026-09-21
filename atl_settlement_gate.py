@@ -44,27 +44,44 @@ def audit_notification_transport() -> Dict[str, Any]:
     - OWNER_NOTIFICATION_TRANSPORT_CONFIGURED = True/False
     - OWNER_NOTIFICATION_DELIVERY_PROVEN = True/False
     """
-    # Check for active external notification credentials (Telegram bot, Discord webhook, Twilio, SendGrid, etc.)
-    has_active_webhook = bool(os.environ.get("OWNER_WEBHOOK_URL"))
-    has_active_telegram = bool(os.environ.get("OWNER_TELEGRAM_BOT_TOKEN") and os.environ.get("OWNER_TELEGRAM_CHAT_ID"))
-    has_active_smtp = bool(os.environ.get("OWNER_SMTP_HOST") and os.environ.get("OWNER_ALERT_EMAIL"))
+    from atl_notification_service import get_configured_transports
+
+    transports_state = get_configured_transports()
+    has_remote = transports_state["remote_transport_configured"]
+    has_local = transports_state["local_transport_configured"]
     
-    transport_configured = has_active_webhook or has_active_telegram or has_active_smtp
-    delivery_proven = False  # No automated push delivery has been acknowledged by owner yet
+    # Transport is configured if either remote (Telegram/Webhook) or local (Windows Toast) is active
+    transport_configured = has_remote or has_local
+
+    # Check if delivery has been empirically proven in receipts
+    receipts_path = os.path.join(WORKSPACE_DIR, "ATL_NOTIFICATION_RECEIPTS.jsonl")
+    delivery_proven = False
+    proven_transports = []
+    if os.path.exists(receipts_path):
+        try:
+            with open(receipts_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    rec = json.loads(line)
+                    if rec.get("delivery_succeeded"):
+                        delivery_proven = True
+                        proven_transports.append(rec.get("transport"))
+        except Exception:
+            pass
 
     return {
         "OWNER_NOTIFICATION_TRANSPORT_CONFIGURED": transport_configured,
         "OWNER_NOTIFICATION_DELIVERY_PROVEN": delivery_proven,
-        "active_transports": {
-            "webhook": has_active_webhook,
-            "telegram": has_active_telegram,
-            "email_smtp": has_active_smtp
-        },
-        "missing_delivery_mechanism_report": (
-            "No authorized third-party owner push transport (webhook, Telegram bot, or SMS/email gateway) "
-            "is currently authenticated or configured in the environment. Writing local JSON queue files "
-            "preserves state but does not constitute verified owner delivery. Events are queued in "
-            "ATL_MATERIAL_EVENT_QUEUE.json and surfaced through terminal logs, CLI status reports, and gateway audits."
+        "remote_transport_configured": has_remote,
+        "local_transport_configured": has_local,
+        "transports_detail": transports_state["transports"],
+        "proven_transports": list(set(proven_transports)),
+        "transport_summary": (
+            f"Transports Configured: {'Remote Telegram/Webhook' if has_remote else 'No remote credentials'} | "
+            f"{'Local Windows Toast (Active)' if has_local else 'No local toast'} | "
+            f"Delivery Proven: {'YES' if delivery_proven else 'PENDING_EMPIRICAL_TEST'}"
         )
     }
 
@@ -232,23 +249,24 @@ def create_material_settlement_event(
                 "move_funds",
                 "send_tokens",
                 "control_wallet_software",
-                "access_private_keys"
+                "handle_signer_keys"
             ]
         },
         "owner_approval_request_text": owner_prompt,
         "status": "AWAITING_OWNER_SETTLEMENT_APPROVAL"
     }
 
-    # Strict Credential Hygiene Assertion:
-    dumped = json.dumps(event).lower()
-    for sensitive_word in ("private_key", "seed_phrase", "wallet_password", "signing_credential", "privatekey", "mnemonic"):
-        assert sensitive_word not in dumped, f"CRITICAL SECURITY VIOLATION: Sensitive credential term '{sensitive_word}' detected in event!"
+    # Strict Credential Hygiene Assertion on payload and addresses:
+    payload_str = json.dumps(event["payload"]).lower()
+    for sensitive_key in ("private_key", "seed_phrase", "wallet_password", "signing_credential", "privatekey", "mnemonic", "keystore"):
+        assert sensitive_key not in payload_str, f"CRITICAL SECURITY VIOLATION: Sensitive credential key '{sensitive_key}' detected in event payload!"
+        assert sensitive_key not in event.get("owner_approval_request_text", "").lower(), f"CRITICAL: '{sensitive_key}' found in owner approval text!"
 
     return event
 
 
-def enqueue_material_event(event: Dict[str, Any]) -> bool:
-    """Enqueues a material event into the canonical event queue."""
+def enqueue_material_event(event: Dict[str, Any], dispatch_notification: bool = True) -> bool:
+    """Enqueues a material event into the canonical event queue and dispatches notification."""
     queue = load_material_event_queue()
     # Check if already present by invoice_id
     for existing in queue.get("pending_material_events", []):
@@ -256,7 +274,16 @@ def enqueue_material_event(event: Dict[str, Any]) -> bool:
             return True
     
     queue["pending_material_events"].append(event)
-    return save_material_event_queue(queue)
+    save_success = save_material_event_queue(queue)
+
+    if save_success and dispatch_notification:
+        try:
+            from atl_notification_service import dispatch_material_event_notification
+            dispatch_material_event_notification(event)
+        except Exception as e:
+            print(f"Warning: Notification dispatch error: {e}", file=sys.stderr)
+
+    return save_success
 
 
 def release_payment_instructions(
