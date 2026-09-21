@@ -198,12 +198,14 @@ verifier_tool = StreamableHttpMcpToolAdapter(params=params)
 
 AgentGround operates on transparent, commercial pricing with zero hidden fees.
 
-| Tier | Price | Allowance / Rate | Features & Delivery |
+| Tier | Price (Hypothesis) | Allowance / Rate | Features & Delivery |
 | :--- | :--- | :--- | :--- |
 | **Free Evaluation** | $0.00 | 60 requests/minute | Public evaluation via hosted gateway (`https://agentground.atlether.trade/mcp`). |
-| **Metered Prepaid** | $0.001 / query | 1,000 queries per $1.00 USDC/USDT (min pack $5.00) | Pay-as-you-go balance, priority queue, programmatic invoice generation. |
-| **Pro Monthly** | 25 USDC / month | 50,000 queries/month included ($0.0008 overage) | SLA target (99.9%), dedicated API key, burst allowance. |
-| **Enterprise Pilot** | 250 USDC | 90-day pilot | Dedicated high-concurrency instance, custom domain schema, engineering support. |
+| **Metered Prepaid** | $0.001 / query | 1,000 queries per $1.00 USDC/USDT (min pack $5.00) | Pay-as-you-go balance, priority queue, programmatic invoice generation (Pricing Hypothesis). |
+| **Pro Monthly** | 25 USDC / month | 50,000 queries/month included ($0.0008 overage) | Dedicated API capacity, burst allowance (Pricing Hypothesis). |
+| **Enterprise Pilot** | 250 USDC | 90-day pilot | Dedicated high-concurrency instance, custom domain schema, engineering integration support (Negotiable Pilot Scope). |
+
+> *Note on Pricing:* All tiers represent commercial pricing hypotheses open to discussion and tailoring for specific customer workflows. No contractual uptime SLAs are offered without explicit prior approval from the eligible adult account holder.
 
 ### How to Request an Invoice Programmatically
 Agents and developers can programmatically request an invoice and lock in capacity:
