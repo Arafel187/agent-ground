@@ -67,8 +67,9 @@ curl -X POST http://localhost:8095/api/v1/verify-claims \
 ### Glama MCP Inspector Compatibility
 AgentGround's remote gateway is natively compatible with [Glama MCP Inspector](https://glama.ai/mcp/inspector):
 - Connect directly via URL parameter:
-  `https://glama.ai/mcp/inspector?servers=[{"name":"AgentGround","url":"https://<HOST>/mcp"}]`
+  `https://glama.ai/mcp/inspector?servers=[{"name":"AgentGround","url":"https://agentground.atlether.trade/mcp"}]`
 - Supports standard Streamable HTTP (`/mcp`), Server-Sent Events (`/sse`), and legacy JSON-RPC (`/rpc`).
+- Fully compliant with both **MCP 2026-07-28** (self-contained requests) and **MCP 2024-11-05** (initialize handshake).
 
 ---
 
@@ -85,7 +86,7 @@ fact_checker = Agent(
     goal="Verify assertions and detect hallucinations against research sources",
     mcps=[
         MCPServerHTTP(
-            url="https://<HOST>/mcp",
+            url="https://agentground.atlether.trade/mcp",
             streamable=True
         )
     ]
@@ -96,7 +97,7 @@ fact_checker = Agent(
 ```python
 from autogen_ext.tools.mcp import StreamableHttpServerParams, StreamableHttpMcpToolAdapter
 
-params = StreamableHttpServerParams(url="https://<HOST>/mcp")
+params = StreamableHttpServerParams(url="https://agentground.atlether.trade/mcp")
 verifier_tool = StreamableHttpMcpToolAdapter(params=params)
 ```
 
