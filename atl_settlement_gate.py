@@ -40,9 +40,13 @@ DEFAULT_SETTLEMENT_ADDRESS_STATUS = "NOT_CONFIGURED"
 def audit_notification_transport() -> Dict[str, Any]:
     """
     Inspects how MATERIAL OWNER EVENTS currently reach the owner.
-    Classifies existing state:
-    - OWNER_NOTIFICATION_TRANSPORT_CONFIGURED = True/False
-    - OWNER_NOTIFICATION_DELIVERY_PROVEN = True/False
+    Classifies existing state with strict distinction between dispatch proof and human acknowledgment:
+    - WINDOWS_TOAST_TRANSPORT_CONFIGURED = True
+    - WINDOWS_TOAST_DISPATCH_PROVEN = True
+    - OWNER_REMOTE_NOTIFICATION_CONFIGURED = False (or True if credentials exist)
+    - OWNER_REMOTE_NOTIFICATION_DELIVERY_PROVEN = False
+    - TELEGRAM_REMOTE_ALERT_STATUS = OWNER_CONFIGURATION_REQUIRED
+    - OWNER_ALERT_ACKNOWLEDGED = False
     """
     from atl_notification_service import get_configured_transports
 
@@ -50,12 +54,10 @@ def audit_notification_transport() -> Dict[str, Any]:
     has_remote = transports_state["remote_transport_configured"]
     has_local = transports_state["local_transport_configured"]
     
-    # Transport is configured if either remote (Telegram/Webhook) or local (Windows Toast) is active
-    transport_configured = has_remote or has_local
-
-    # Check if delivery has been empirically proven in receipts
+    # Check if delivery/dispatch has been empirically proven in receipts
     receipts_path = os.path.join(WORKSPACE_DIR, "ATL_NOTIFICATION_RECEIPTS.jsonl")
-    delivery_proven = False
+    toast_dispatch_proven = False
+    remote_delivery_proven = False
     proven_transports = []
     if os.path.exists(receipts_path):
         try:
@@ -66,22 +68,36 @@ def audit_notification_transport() -> Dict[str, Any]:
                         continue
                     rec = json.loads(line)
                     if rec.get("delivery_succeeded"):
-                        delivery_proven = True
-                        proven_transports.append(rec.get("transport"))
+                        t = rec.get("transport", "")
+                        if "WINDOWS_TOAST" in t:
+                            toast_dispatch_proven = True
+                        if "TELEGRAM" in t or "WEBHOOK" in t:
+                            remote_delivery_proven = True
+                        proven_transports.append(t)
         except Exception:
             pass
 
+    telegram_status = "CONFIGURED" if transports_state["transports"]["telegram"]["configured"] else "OWNER_CONFIGURATION_REQUIRED"
+
     return {
-        "OWNER_NOTIFICATION_TRANSPORT_CONFIGURED": transport_configured,
-        "OWNER_NOTIFICATION_DELIVERY_PROVEN": delivery_proven,
-        "remote_transport_configured": has_remote,
-        "local_transport_configured": has_local,
+        "WINDOWS_TOAST_TRANSPORT_CONFIGURED": has_local,
+        "WINDOWS_TOAST_DISPATCH_PROVEN": toast_dispatch_proven,
+        "OWNER_REMOTE_NOTIFICATION_CONFIGURED": has_remote,
+        "OWNER_REMOTE_NOTIFICATION_DELIVERY_PROVEN": remote_delivery_proven,
+        "TELEGRAM_REMOTE_ALERT_STATUS": telegram_status,
+        "OWNER_ALERT_ACKNOWLEDGED": False,
         "transports_detail": transports_state["transports"],
         "proven_transports": list(set(proven_transports)),
+        "fallback_order": [
+            "TELEGRAM_REMOTE_ALERT (if configured)",
+            "WINDOWS_TOAST (local desktop fallback)",
+            "ATL_MATERIAL_EVENT_QUEUE.json (canonical source of truth)"
+        ],
         "transport_summary": (
-            f"Transports Configured: {'Remote Telegram/Webhook' if has_remote else 'No remote credentials'} | "
-            f"{'Local Windows Toast (Active)' if has_local else 'No local toast'} | "
-            f"Delivery Proven: {'YES' if delivery_proven else 'PENDING_EMPIRICAL_TEST'}"
+            f"Local Windows Toast: {'CONFIGURED & DISPATCH_PROVEN' if toast_dispatch_proven else 'AVAILABLE'} | "
+            f"Remote Telegram: {telegram_status} | "
+            f"Remote Delivery Proven: {remote_delivery_proven} | "
+            f"Owner Acknowledged: False"
         )
     }
 
